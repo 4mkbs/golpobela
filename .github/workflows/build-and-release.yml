@@ -45,12 +45,13 @@ jobs:
 
       - name: Build Web Application
         run: |
-          dx build --platform web --release --base-path /golpobela/
+          dx build --platform web --release
 
       - name: Package Web Build
         run: |
           mkdir -p dist-web
           cp -r target/dx/golpo/release/web/public/* dist-web/
+          cp CNAME dist-web/CNAME
           cd dist-web && zip -r ../golpobela-web.zip . && cd ..
 
       - name: Upload Web Artifact
@@ -65,6 +66,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist-web
+          cname: golpobela.mkbs.dev
 
   build-desktop:
     name: Build Desktop (${{ matrix.os }})
@@ -199,8 +201,8 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [build-web, build-desktop]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-web, build-desktop, build-android]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
