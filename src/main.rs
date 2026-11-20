@@ -101,12 +101,90 @@ fn initial_stories() -> Vec<Story> {
 }
 
 fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::panic::set_hook(Box::new(|info| {
+            eprintln!("Handled panic: {:?}", info);
+        }));
+    }
     dioxus::launch(App);
+}
+
+fn fetch_firebase_stories(mut stories: Signal<Vec<Story>>, mut is_loading: Signal<bool>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        spawn(async move {
+            is_loading.set(true);
+            if let Ok(resp) = reqwest::get(FIREBASE_URL).await {
+                if let Ok(remote_stories) = resp.json::<Vec<Story>>().await {
+                    if !remote_stories.is_empty() {
+                        stories.set(remote_stories);
+                    }
+                }
+            }
+            is_loading.set(false);
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<Vec<Story>>();
+        spawn(async move {
+            use futures_util::StreamExt;
+            while let Some(remote_stories) = rx.next().await {
+                stories.set(remote_stories);
+                is_loading.set(false);
+            }
+        });
+
+        std::thread::spawn(move || {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Ok(mut resp) = ureq::get(FIREBASE_URL).call() {
+                    if let Ok(remote_stories) = resp.body_mut().read_json::<Vec<Story>>() {
+                        if !remote_stories.is_empty() {
+                            let _ = tx.unbounded_send(remote_stories);
+                        }
+                    }
+                }
+            }));
+        });
+    }
+}
+
+fn push_firebase_stories(new_list: Vec<Story>, mut is_syncing: Signal<bool>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        spawn(async move {
+            is_syncing.set(true);
+            let client = reqwest::Client::new();
+            let _ = client.put(FIREBASE_URL).json(&new_list).send().await;
+            is_syncing.set(false);
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        is_syncing.set(true);
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<()>();
+        spawn(async move {
+            use futures_util::StreamExt;
+            if rx.next().await.is_some() {
+                is_syncing.set(false);
+            }
+        });
+
+        std::thread::spawn(move || {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = ureq::put(FIREBASE_URL).send_json(&new_list);
+                let _ = tx.unbounded_send(());
+            }));
+        });
+    }
 }
 
 #[component]
 fn App() -> Element {
-    let mut stories = use_signal(initial_stories);
+    let stories = use_signal(initial_stories);
     let mut selected_genre = use_signal(|| "সব".to_string());
     let mut active_tab = use_signal(|| "হোম".to_string());
     let mut opened_story_id = use_signal(|| None::<usize>);
@@ -115,7 +193,7 @@ fn App() -> Element {
 
     // Firebase Sync Status
     let is_syncing = use_signal(|| false);
-    let mut is_loading = use_signal(|| true);
+    let is_loading = use_signal(|| true);
 
     // Sidebar & Profile Modal State
     let mut menu_open = use_signal(|| false);
@@ -148,31 +226,16 @@ fn App() -> Element {
 
     // Automatically fetch stories from Firebase on initial launch
     use_effect(move || {
-        spawn(async move {
-            is_loading.set(true);
-            if let Ok(resp) = reqwest::get(FIREBASE_URL).await {
-                if let Ok(remote_stories) = resp.json::<Vec<Story>>().await {
-                    if !remote_stories.is_empty() {
-                        stories.set(remote_stories);
-                    }
-                }
-            }
-            is_loading.set(false);
-        });
+        fetch_firebase_stories(stories, is_loading);
     });
 
     // Helper closure to save and sync stories to Firebase
     let sync_stories_to_firebase = {
+        let is_syncing = is_syncing.clone();
         let mut stories = stories.clone();
-        let mut is_syncing = is_syncing.clone();
         move |new_list: Vec<Story>| {
             stories.set(new_list.clone());
-            spawn(async move {
-                is_syncing.set(true);
-                let client = reqwest::Client::new();
-                let _ = client.put(FIREBASE_URL).json(&new_list).send().await;
-                is_syncing.set(false);
-            });
+            push_firebase_stories(new_list, is_syncing);
         }
     };
 
