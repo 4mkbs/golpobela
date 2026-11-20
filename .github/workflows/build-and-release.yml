@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-web:
-    name: Build Web App
+    name: Build & Deploy Web App
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -45,7 +45,7 @@ jobs:
 
       - name: Build Web Application
         run: |
-          dx build --platform web --release
+          dx build --platform web --release --base-path /golpobela/
 
       - name: Package Web Build
         run: |
@@ -58,6 +58,13 @@ jobs:
         with:
           name: golpobela-web
           path: golpobela-web.zip
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist-web
 
   build-desktop:
     name: Build Desktop (${{ matrix.os }})
@@ -87,7 +94,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -133,12 +140,10 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK and Build Tools
+      - name: Install Android NDK and SDK components
         run: |
-          sdkmanager --install "ndk;25.2.9519653" "build-tools;34.0.0" "platforms;android-34"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653" "build-tools;34.0.0" "platforms;android-34"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -165,11 +170,9 @@ jobs:
           fi
 
       - name: Bundle Android Project
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/25.2.9519653
         run: |
-          export ANDROID_NDK_HOME="$NDK_HOME"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/25.2.9519653"
+          export NDK_HOME="$ANDROID_NDK_HOME"
           dx bundle --android --release --target aarch64-linux-android --package-types apk || true
 
       - name: Build APK with Gradle
@@ -178,16 +181,14 @@ jobs:
           if [ -d "$ANDROID_APP_DIR" ]; then
             cd "$ANDROID_APP_DIR"
             chmod +x gradlew
-            ./gradlew assembleRelease || ./gradlew assembleDebug
+            ./gradlew assembleDebug || ./gradlew assembleRelease
           fi
 
       - name: Find and Collect APK
         run: |
           mkdir -p dist-apk
-          find target/dx/golpo/release/android/app/app/build/outputs/apk/ -name "*.apk" -exec cp {} dist-apk/GolpoBela-android.apk \; || true
-          if [ ! -f dist-apk/GolpoBela-android.apk ]; then
-            echo "Building standalone APK check completed"
-          fi
+          find target/ -name "*.apk" -exec cp {} dist-apk/GolpoBela-android.apk \; || true
+          ls -la dist-apk/ || true
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
