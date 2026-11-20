@@ -186,11 +186,30 @@ jobs:
             ./gradlew assembleDebug || ./gradlew assembleRelease
           fi
 
-      - name: Find and Collect APK
+      - name: Build and Sign APK
         run: |
           mkdir -p dist-apk
-          find target/ -name "*.apk" -exec cp {} dist-apk/GolpoBela-android.apk \; || true
-          ls -la dist-apk/ || true
+          
+          # Find the built unsigned APK
+          UNSIGNED_APK=$(find target/ -name "*unsigned.apk" -o -name "*release*.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            UNSIGNED_APK=$(find target/ -name "*.apk" | head -n 1)
+          fi
+          echo "Found APK: $UNSIGNED_APK"
+
+          # Generate release keystore for signing
+          keytool -genkeypair -v -keystore release.jks -alias golpobela -keyalg RSA -keysize 2048 -validity 10000 -storepass golpopass123 -keypass golpopass123 -dname "CN=GolpoBela, O=Golpo, C=BD"
+          
+          # Find apksigner
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          echo "Using apksigner: $APKSIGNER"
+
+          # Sign the APK
+          "$APKSIGNER" sign --ks release.jks --ks-key-alias golpobela --ks-pass pass:golpopass123 --key-pass pass:golpopass123 --out dist-apk/GolpoBela-android.apk "$UNSIGNED_APK"
+          
+          # Verify the signed APK
+          "$APKSIGNER" verify --verbose dist-apk/GolpoBela-android.apk
+          ls -la dist-apk/
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
