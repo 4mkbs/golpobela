@@ -18,6 +18,7 @@ Thumbs.db
 *.p12
 *.keystore
 *.jks
+!golpobela-release.jks
 *.password
 local.properties
 .gradle/

@@ -183,29 +183,31 @@ jobs:
           if [ -d "$ANDROID_APP_DIR" ]; then
             cd "$ANDROID_APP_DIR"
             chmod +x gradlew
-            ./gradlew assembleDebug || ./gradlew assembleRelease
+            ./gradlew assembleRelease || ./gradlew assembleDebug
           fi
 
       - name: Build and Sign APK
         run: |
           mkdir -p dist-apk
           
-          # Find the built unsigned APK
+          # Find the built unsigned or release APK
           UNSIGNED_APK=$(find target/ -name "*unsigned.apk" -o -name "*release*.apk" | head -n 1)
           if [ -z "$UNSIGNED_APK" ]; then
             UNSIGNED_APK=$(find target/ -name "*.apk" | head -n 1)
           fi
           echo "Found APK: $UNSIGNED_APK"
 
-          # Generate release keystore for signing
-          keytool -genkeypair -v -keystore release.jks -alias golpobela -keyalg RSA -keysize 2048 -validity 10000 -storepass golpopass123 -keypass golpopass123 -dname "CN=GolpoBela, O=Golpo, C=BD"
-          
-          # Find apksigner
+          # Find tools
+          ZIPALIGN=$(find "$ANDROID_HOME/build-tools" -name zipalign | sort -V | tail -n 1)
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          echo "Using zipalign: $ZIPALIGN"
           echo "Using apksigner: $APKSIGNER"
 
-          # Sign the APK
-          "$APKSIGNER" sign --ks release.jks --ks-key-alias golpobela --ks-pass pass:golpopass123 --key-pass pass:golpopass123 --out dist-apk/GolpoBela-android.apk "$UNSIGNED_APK"
+          # Align the APK (page-align uncompressed .so files)
+          "$ZIPALIGN" -p -f 4 "$UNSIGNED_APK" /tmp/aligned.apk
+
+          # Sign the APK with permanent release keystore
+          "$APKSIGNER" sign --ks golpobela-release.jks --ks-key-alias golpobela --ks-pass pass:golpobela123 --key-pass pass:golpobela123 --out dist-apk/GolpoBela-android.apk /tmp/aligned.apk
           
           # Verify the signed APK
           "$APKSIGNER" verify --verbose dist-apk/GolpoBela-android.apk
