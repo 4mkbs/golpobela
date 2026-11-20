@@ -1,0 +1,13 @@
+[application]
+name = "golpo"
+default_platform = "web"
+
+[web.app]
+title = "গল্পবেলা — গল্পের আপন ঠিকানা"
+
+[web.resource.dev]
+style = []
+script = []
+
+[bundle]
+identifier = "app.golpobela.reader"

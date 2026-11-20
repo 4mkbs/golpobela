@@ -1,0 +1,23 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Output binaries & distribution
+/dist/
+*.apk
+*.aab
+*.idsig
+
+# Dioxus & OS temporary files
+.dioxus/
+.DS_Store
+Thumbs.db
+
+# Android local keystores & secrets
+*.p12
+*.keystore
+*.jks
+*.password
+local.properties
+.gradle/
